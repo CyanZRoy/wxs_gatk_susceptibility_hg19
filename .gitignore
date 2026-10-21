@@ -1,0 +1,34 @@
+# Release allowlist: workflow, Choppy configuration, deployable docs, and helpers.
+# Local research, tests, data, reports, and run artifacts stay private.
+# New files remain ignored until they are explicitly added here.
+/*
+
+# Repository metadata and entry point
+!/.gitignore
+!/README.md
+!/workflow.wdl
+!/defaults
+!/inputs
+
+# Imported WDL tasks and the two Python helper programs
+!/tasks/
+/tasks/*
+!/tasks/align_reads.wdl
+!/tasks/apply_recalibration.wdl
+!/tasks/base_recalibrate.wdl
+!/tasks/fastqc.wdl
+!/tasks/genotype_target_regions.wdl
+!/tasks/haplotype_gvcf.wdl
+!/tasks/make_delivery.wdl
+!/tasks/mark_duplicates.wdl
+!/tasks/mitochondrial_variants.wdl
+!/tasks/prepare_capture.wdl
+!/tasks/prepare_targets.wdl
+!/tasks/qualimap_qc.wdl
+!/tasks/select_mt_target_variants.wdl
+!/tasks/trim_reads.wdl
+!/tasks/validate_inputs.wdl
+!/scripts/
+/scripts/*
+!/scripts/delivery.py
+!/scripts/intervals.py
