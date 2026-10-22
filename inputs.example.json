@@ -1,0 +1,19 @@
+{
+  "WxsGermlineHg19.sample_id": "SAMPLE_ID",
+  "WxsGermlineHg19.fastq_r1": "/replace/with/merged_R1.fastq.gz",
+  "WxsGermlineHg19.fastq_r2": "/replace/with/merged_R2.fastq.gz",
+  "WxsGermlineHg19.library_id": "LIBRARY_ID",
+  "WxsGermlineHg19.platform": "ILLUMINA",
+  "WxsGermlineHg19.capture_bed": "/replace/with/capture_hg19.bed",
+  "WxsGermlineHg19.sex_chromosome_complement": "UNKNOWN",
+  "WxsGermlineHg19.ref_fasta": "/replace/with/ucsc.hg19.fa",
+  "WxsGermlineHg19.ref_fai": "/replace/with/ucsc.hg19.fa.fai",
+  "WxsGermlineHg19.ref_dict": "/replace/with/ucsc.hg19.dict",
+  "WxsGermlineHg19.bwa_index_files": ["/replace/with/ucsc.hg19.fa.amb", "/replace/with/ucsc.hg19.fa.ann", "/replace/with/ucsc.hg19.fa.bwt", "/replace/with/ucsc.hg19.fa.pac", "/replace/with/ucsc.hg19.fa.sa"],
+  "WxsGermlineHg19.dbsnp_vcf": "/replace/with/dbsnp_138.hg19.vcf",
+  "WxsGermlineHg19.dbsnp_index": "/replace/with/dbsnp_138.hg19.vcf.idx",
+  "WxsGermlineHg19.mills_vcf": "/replace/with/Mills_and_1000G_gold_standard.indels.hg19.sites.vcf",
+  "WxsGermlineHg19.mills_index": "/replace/with/Mills_and_1000G_gold_standard.indels.hg19.sites.vcf.idx",
+  "WxsGermlineHg19.intervals_script": "/replace/with/scripts/intervals.py",
+  "WxsGermlineHg19.delivery_script": "/replace/with/scripts/delivery.py"
+}

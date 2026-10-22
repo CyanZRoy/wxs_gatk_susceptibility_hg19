@@ -1,0 +1,13 @@
+{
+  "formMode": "batch",
+  "fields": [
+    {"tmplType": "text", "label": "受检者样本 ID", "model": "sample_id", "config": {"rules": [{"required": true}]}},
+    {"tmplType": "text", "label": "文库 ID", "model": "library_id", "config": {"rules": [{"required": true}]}},
+    {"tmplType": "file", "label": "已合并的双端 FASTQ R1", "model": "fastq_r1", "multiple": false, "config": {"rules": [{"required": true}]}},
+    {"tmplType": "file", "label": "已合并的双端 FASTQ R2", "model": "fastq_r2", "multiple": false, "config": {"rules": [{"required": true}]}},
+    {"tmplType": "file", "label": "可选：WXS 捕获/探针区域 BED；不填写按 WGS 运行", "model": "capture_bed", "multiple": false, "filterType": ".bed"},
+    {"tmplType": "text", "label": "性染色体组成：XX、XY 或 UNKNOWN", "model": "sex_chromosome_complement", "config": {"rules": [{"required": true}]}},
+    {"tmplType": "file", "label": "可选：报告检测位点/区域 BED", "model": "target_bed", "multiple": false, "filterType": ".bed"},
+    {"tmplType": "actions", "buttons": [{"type": "submit", "buttonType": "primary", "buttonLabel": "下一步", "validate": true}]}
+  ]
+}

@@ -88,7 +88,7 @@ workflow WxsGermlineHg19 {
       docker_image = analysis_image, cluster_config = cpu32mem64_cluster_config, threads = threads
   }
   call mark_duplicates.MarkDuplicates as MarkDuplicates {
-    input: bam = AlignReads.bam, bai = AlignReads.bai,
+    input: input_bam = AlignReads.bam, input_bai = AlignReads.bai,
       sample_id = sample_id, docker_image = analysis_image,
       cluster_config = cpu16mem32_cluster_config
   }
@@ -102,7 +102,7 @@ workflow WxsGermlineHg19 {
       cluster_config = cpu16mem32_cluster_config
   }
   call apply_recalibration.ApplyRecalibration as ApplyRecalibration {
-    input: bam = MarkDuplicates.bam, bai = MarkDuplicates.bai,
+    input: input_bam = MarkDuplicates.bam, input_bai = MarkDuplicates.bai,
       table = BaseRecalibrate.table, ref_fasta = ref_fasta,
       ref_fai = ref_fai, ref_dict = ref_dict,
       sample_id = sample_id, docker_image = gatk_image,
@@ -189,7 +189,7 @@ workflow WxsGermlineHg19 {
     }
     if (PrepareTargets.has_in_scope) {
       call genotype_target_regions.GenotypeTargetRegions as GenotypeTargetRegions {
-        input: gvcf = HaplotypeGvcf.gvcf, index = HaplotypeGvcf.index,
+        input: input_gvcf = HaplotypeGvcf.gvcf, input_index = HaplotypeGvcf.index,
           ref_fasta = ref_fasta, ref_fai = ref_fai, ref_dict = ref_dict,
           in_scope_bed = PrepareTargets.in_scope_bed, sample_id = sample_id,
           docker_image = gatk_image, cluster_config = cpu16mem32_cluster_config
@@ -197,8 +197,8 @@ workflow WxsGermlineHg19 {
     }
     if (PrepareTargets.has_x_diploid) {
       call genotype_target_regions.GenotypeTargetRegions as GenotypeXDiploidTargets {
-        input: gvcf = select_first([HaplotypeXDiploid.gvcf]),
-          index = select_first([HaplotypeXDiploid.index]),
+        input: input_gvcf = select_first([HaplotypeXDiploid.gvcf]),
+          input_index = select_first([HaplotypeXDiploid.index]),
           ref_fasta = ref_fasta, ref_fai = ref_fai, ref_dict = ref_dict,
           in_scope_bed = PrepareTargets.x_diploid_in_scope_bed,
           sample_id = sample_id + ".x_diploid", docker_image = gatk_image,
@@ -207,8 +207,8 @@ workflow WxsGermlineHg19 {
     }
     if (PrepareTargets.has_x_haploid) {
       call genotype_target_regions.GenotypeTargetRegions as GenotypeXHaploidTargets {
-        input: gvcf = select_first([HaplotypeXHaploid.gvcf]),
-          index = select_first([HaplotypeXHaploid.index]),
+        input: input_gvcf = select_first([HaplotypeXHaploid.gvcf]),
+          input_index = select_first([HaplotypeXHaploid.index]),
           ref_fasta = ref_fasta, ref_fai = ref_fai, ref_dict = ref_dict,
           in_scope_bed = PrepareTargets.x_haploid_in_scope_bed,
           sample_id = sample_id + ".x_haploid", ploidy = 1, docker_image = gatk_image,
@@ -217,8 +217,8 @@ workflow WxsGermlineHg19 {
     }
     if (PrepareTargets.has_y_haploid) {
       call genotype_target_regions.GenotypeTargetRegions as GenotypeYHaploidTargets {
-        input: gvcf = select_first([HaplotypeYHaploid.gvcf]),
-          index = select_first([HaplotypeYHaploid.index]),
+        input: input_gvcf = select_first([HaplotypeYHaploid.gvcf]),
+          input_index = select_first([HaplotypeYHaploid.index]),
           ref_fasta = ref_fasta, ref_fai = ref_fai, ref_dict = ref_dict,
           in_scope_bed = PrepareTargets.y_haploid_in_scope_bed,
           sample_id = sample_id + ".y_haploid", ploidy = 1, docker_image = gatk_image,
@@ -227,8 +227,8 @@ workflow WxsGermlineHg19 {
     }
     if (PrepareTargets.has_mt) {
       call select_mt_target_variants.SelectMtTargetVariants as SelectMtTargetVariants {
-        input: vcf = select_first([CallMitochondrialVariants.vcf]),
-          index = select_first([CallMitochondrialVariants.index]),
+        input: input_vcf = select_first([CallMitochondrialVariants.vcf]),
+          input_index = select_first([CallMitochondrialVariants.index]),
           ref_fasta = ref_fasta, ref_fai = ref_fai, ref_dict = ref_dict,
           in_scope_bed = PrepareTargets.mt_in_scope_bed,
           sample_id = sample_id, docker_image = gatk_image,

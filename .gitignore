@@ -1,14 +1,29 @@
-# Release allowlist: workflow, Choppy configuration, deployable docs, and helpers.
-# Local research, tests, data, reports, and run artifacts stay private.
+# Release allowlist: workflow, Choppy configuration, public docs, helpers, and tests.
+# Local research, data, reports, and run artifacts stay private.
 # New files remain ignored until they are explicitly added here.
 /*
 
 # Repository metadata and entry point
 !/.gitignore
 !/README.md
+!/AGENTS.md
+!/CHANGELOG.md
+!/TODO.md
 !/workflow.wdl
 !/defaults
 !/inputs
+!/inputs.example.json
+!/schema.json
+!/manifest.json
+
+# Public deployment documentation and regression tests
+!/docs/
+/docs/*
+!/docs/流程与运行依赖.md
+!/tests/
+/tests/*
+!/tests/test_scripts.py
+!/tests/test_wdl_interfaces.py
 
 # Imported WDL tasks and the two Python helper programs
 !/tasks/
@@ -32,3 +47,4 @@
 /scripts/*
 !/scripts/delivery.py
 !/scripts/intervals.py
+!/scripts/validate_wdl_wsl.ps1

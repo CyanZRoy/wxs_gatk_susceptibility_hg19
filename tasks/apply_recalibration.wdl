@@ -2,8 +2,8 @@ version 1.0
 
 task ApplyRecalibration {
   input {
-    File bam
-    File bai
+    File input_bam
+    File input_bai
     File table
     File ref_fasta
     File ref_fai
@@ -14,8 +14,8 @@ task ApplyRecalibration {
   }
   command <<<
     set -euo pipefail
-    ln -s ~{bam} input.bam
-    ln -s ~{bai} input.bam.bai
+    ln -s ~{input_bam} input.bam
+    ln -s ~{input_bai} input.bam.bai
     ln -s ~{ref_fasta} ref.fa
     ln -s ~{ref_fai} ref.fa.fai
     ln -s ~{ref_dict} ref.dict

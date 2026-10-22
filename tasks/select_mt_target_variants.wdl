@@ -2,8 +2,8 @@ version 1.0
 
 task SelectMtTargetVariants {
   input {
-    File vcf
-    File index
+    File input_vcf
+    File input_index
     File ref_fasta
     File ref_fai
     File ref_dict
@@ -14,8 +14,8 @@ task SelectMtTargetVariants {
   }
   command <<<
     set -euo pipefail
-    ln -s ~{vcf} input.vcf.gz
-    ln -s ~{index} input.vcf.gz.tbi
+    ln -s ~{input_vcf} input.vcf.gz
+    ln -s ~{input_index} input.vcf.gz.tbi
     ln -s ~{ref_fasta} ref.fa
     ln -s ~{ref_fai} ref.fa.fai
     ln -s ~{ref_dict} ref.dict

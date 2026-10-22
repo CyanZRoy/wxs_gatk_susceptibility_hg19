@@ -2,8 +2,8 @@ version 1.0
 
 task GenotypeTargetRegions {
   input {
-    File gvcf
-    File index
+    File input_gvcf
+    File input_index
     File ref_fasta
     File ref_fai
     File ref_dict
@@ -15,8 +15,8 @@ task GenotypeTargetRegions {
   }
   command <<<
     set -euo pipefail
-    ln -s ~{gvcf} input.g.vcf.gz
-    ln -s ~{index} input.g.vcf.gz.tbi
+    ln -s ~{input_gvcf} input.g.vcf.gz
+    ln -s ~{input_index} input.g.vcf.gz.tbi
     ln -s ~{ref_fasta} ref.fa
     ln -s ~{ref_fai} ref.fa.fai
     ln -s ~{ref_dict} ref.dict
