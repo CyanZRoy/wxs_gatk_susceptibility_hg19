@@ -5,7 +5,7 @@
 ```text
 workflow.wdl           主流程与 task imports
 tasks/*.wdl            每个分析 task 独立一个文件
-scripts/*.py           BED 校验与交付预检
+scripts/*.py           辅助代码的维护源文件；运行时由 EmbedHelpers task 内嵌生成
 ```
 
 ## 处理链
@@ -34,7 +34,7 @@ WXS 的 `capture_bed` 含 `chrM` 或进入 WGS 模式时启用独立线粒体分
 
 ## 输入与运行
 
-需要 Cromwell 支持 WDL 1.0，并由运行后端本地化 `File` 输入、`tasks/` 下的 WDL imports 及 Docker 镜像。六张镜像的默认标签均指向 `crpi-xvcezojsbq275htp.cn-shanghai.personal.cr.aliyuncs.com/nap_hub/`，WDL 和 Choppy `defaults`/`inputs` 使用相同值；六档 `cpu*mem*_cluster_config` 名称及 ECS 默认值参考 [hg38 instant defaults](https://github.com/CyanZRoy/wxs_somatic_gatk_hg38_instant/blob/main/defaults)，各 task 使用的实例配置见其 `runtime.instanceTypes`。部署前须逐个拉取并在容器内检查软件、版本和路径：`fastp_image` 需 `fastp`，`fastqc_image` 需 `fastqc`，`analysis_image` 需 `bwa`、`samtools`、`gatk`，`gatk_image` 需 `gatk` 与 `samtools`，`qualimap_image` 需 `qualimap`、`awk`、`tar`、Java，`python_image` 需 Python 3 标准库。所有容器还需满足任务 Shell 命令。镜像标签和资源 URI 不代表已经通过拉取或运行验证；部署时应记录镜像 digest、工具版本和真实路径。
+需要 Cromwell 支持 WDL 1.0，并由运行后端本地化 `File` 输入、解析 `tasks/` 下的 WDL imports 及拉取 Docker 镜像。六张镜像的默认标签均指向 `crpi-xvcezojsbq275htp.cn-shanghai.personal.cr.aliyuncs.com/nap_hub/`，WDL 和 Choppy `defaults`/`inputs` 使用相同值；六档 `cpu*mem*_cluster_config` 名称及 ECS 默认值参考 [hg38 instant defaults](https://github.com/CyanZRoy/wxs_somatic_gatk_hg38_instant/blob/main/defaults)，各 task 使用的实例配置见其 `runtime.instanceTypes`。部署前须逐个拉取并在容器内检查软件、版本和路径：`fastp_image` 需 `fastp`，`fastqc_image` 需 `fastqc`，`analysis_image` 需 `bwa`、`samtools`、`gatk`，`gatk_image` 需 `gatk` 与 `samtools`，`qualimap_image` 需 `qualimap`、`awk`、`tar`、Java，`python_image` 需 Python 3 标准库。所有容器还需满足任务 Shell 命令。镜像标签和资源 URI 不代表已经通过拉取或运行验证；部署时应记录镜像 digest、工具版本和真实路径。
 
 各 task 先将计算所需输入及索引从挂载目录复制到独立的 `/tmp` 目录，在本地运行并把 WDL 输出复制回调用目录；`ValidateInputs` 只对大型 FASTQ 做非空预检。任务退出时另存 `script.txt`、`stdout.txt`、`stderr.txt`，便于在 Choppy 直接打开。当前重任务的 `systemDisk` 使用 150–500 GB 静态初值，需按实际 FASTQ/BAM 大小、本地副本和后端磁盘模型调整；它不是通用容量保证。
 
@@ -49,9 +49,10 @@ WXS 的 `capture_bed` 含 `chrM` 或进入 WGS 模式时启用独立线粒体分
 | `target_bed` | 可选，省略或 JSON `null`；空字符串不是有效 BED |
 | `ref_fasta`、`ref_fai`、`ref_dict`、`bwa_index_files` | 同一 hg19 UCSC FASTA 的完整索引组；BWA 顺序为 `.amb/.ann/.bwt/.pac/.sa` |
 | `dbsnp_vcf/index`、`mills_vcf/index` | 同版 BQSR known-sites 与索引 |
-| `intervals_script`、`delivery_script` | 随 WDL 包一起可被 Cromwell 本地化的两个 `scripts/*.py` 文件 |
 
-在仓库外创建 `inputs.json`，填入真实样本和 hg19 UCSC 参考文件的可访问路径。以下是最小输入骨架；五个 BWA 索引、FAI、字典和 known-sites 索引须与 FASTA 匹配。`capture_bed` 未填时为 WGS；WXS 在 JSON 中另加 `"WxsGermlineHg19.capture_bed": "/path/to/capture.bed"`。可选目标清单用 `target_bed`；确认 XX/XY 后再设置 `sex_chromosome_complement`。两个 Python 路径必须能被运行后端本地化。
+`EmbedHelpers` task 在命令块内生成 `intervals.py` 和 `delivery.py`，通过普通 task 输出交给 `PrepareCapture`、`PrepareTargets` 和 `MakeDelivery`。运行时无需提供外部 Python 脚本路径。仓库中的 `scripts/*.py` 是维护源文件；修改后须同步 `tasks/embed_helpers.wdl`，并核对两者内容一致。提交 WDL 时仍需包含 `tasks/embed_helpers.wdl` 的 imports ZIP。
+
+在仓库外创建 `inputs.json`，填入真实样本和 hg19 UCSC 参考文件的可访问路径。以下是最小输入骨架；五个 BWA 索引、FAI、字典和 known-sites 索引须与 FASTA 匹配。`capture_bed` 未填时为 WGS；WXS 在 JSON 中另加 `"WxsGermlineHg19.capture_bed": "/path/to/capture.bed"`。可选目标清单用 `target_bed`；确认 XX/XY 后再设置 `sex_chromosome_complement`。旧提交模板中的 `intervals_script` 和 `delivery_script` 键应删除。
 
 ```json
 {
@@ -66,9 +67,7 @@ WXS 的 `capture_bed` 含 `chrM` 或进入 WGS 模式时启用独立线粒体分
   "WxsGermlineHg19.dbsnp_vcf": "/path/to/dbsnp_138.hg19.vcf",
   "WxsGermlineHg19.dbsnp_index": "/path/to/dbsnp_138.hg19.vcf.idx",
   "WxsGermlineHg19.mills_vcf": "/path/to/Mills_and_1000G_gold_standard.indels.hg19.sites.vcf",
-  "WxsGermlineHg19.mills_index": "/path/to/Mills_and_1000G_gold_standard.indels.hg19.sites.vcf.idx",
-  "WxsGermlineHg19.intervals_script": "/path/to/scripts/intervals.py",
-  "WxsGermlineHg19.delivery_script": "/path/to/scripts/delivery.py"
+  "WxsGermlineHg19.mills_index": "/path/to/Mills_and_1000G_gold_standard.indels.hg19.sites.vcf.idx"
 }
 ```
 

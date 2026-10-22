@@ -1,6 +1,7 @@
 version 1.0
 
 import "tasks/validate_inputs.wdl" as validate_inputs
+import "tasks/embed_helpers.wdl" as embed_helpers
 import "tasks/prepare_capture.wdl" as prepare_capture
 import "tasks/trim_reads.wdl" as trim_reads
 import "tasks/fastqc.wdl" as fastqc
@@ -37,8 +38,6 @@ workflow WxsGermlineHg19 {
     Int capture_padding = 100
     String sex_chromosome_complement = "UNKNOWN"
 
-    File intervals_script
-    File delivery_script
     String fastp_image = "crpi-xvcezojsbq275htp.cn-shanghai.personal.cr.aliyuncs.com/nap_hub/fastp:0.19.6"
     String fastqc_image = "crpi-xvcezojsbq275htp.cn-shanghai.personal.cr.aliyuncs.com/nap_hub/fastqc:0.11.8"
     String analysis_image = "crpi-xvcezojsbq275htp.cn-shanghai.personal.cr.aliyuncs.com/nap_hub/sentieon-replaced:2.0"
@@ -61,9 +60,13 @@ workflow WxsGermlineHg19 {
       docker_image = python_image, cluster_config = cpu4mem8_cluster_config
   }
 
+  call embed_helpers.EmbedHelpers as EmbedHelpers {
+    input: docker_image = python_image, cluster_config = cpu4mem8_cluster_config
+  }
+
   call prepare_capture.PrepareCapture as PrepareCapture {
     input: capture_bed = capture_bed, ref_fai = ref_fai,
-      capture_padding = capture_padding, script = intervals_script,
+      capture_padding = capture_padding, script = EmbedHelpers.intervals_script,
       sex_chromosome_complement = sex_chromosome_complement,
       validated = ValidateInputs.marker,
       docker_image = python_image, cluster_config = cpu4mem16_cluster_config
@@ -171,7 +174,7 @@ workflow WxsGermlineHg19 {
       mt_vcf = CallMitochondrialVariants.vcf,
       mt_index = CallMitochondrialVariants.index,
       fastp_json = TrimReads.report_json, duplicate_metrics = MarkDuplicates.metrics,
-      sample_id = sample_id, script = delivery_script,
+      sample_id = sample_id, script = EmbedHelpers.delivery_script,
       docker_image = python_image, cluster_config = cpu4mem16_cluster_config
   }
 
@@ -184,7 +187,7 @@ workflow WxsGermlineHg19 {
         y_haploid_bed = PrepareCapture.y_haploid_bed,
         mt_bed = PrepareCapture.mt_bed,
         sex_chromosome_complement = sex_chromosome_complement,
-        script = intervals_script, docker_image = python_image,
+        script = EmbedHelpers.intervals_script, docker_image = python_image,
         cluster_config = cpu4mem16_cluster_config
     }
     if (PrepareTargets.has_in_scope) {

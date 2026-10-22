@@ -15,8 +15,6 @@
   "capture_bed": "",
   "sex_chromosome_complement": "UNKNOWN",
   "target_bed": "",
-  "intervals_script": "scripts/intervals.py",
-  "delivery_script": "scripts/delivery.py",
   "platform": "ILLUMINA",
   "fastp_image": "crpi-xvcezojsbq275htp.cn-shanghai.personal.cr.aliyuncs.com/nap_hub/fastp:0.19.6",
   "fastqc_image": "crpi-xvcezojsbq275htp.cn-shanghai.personal.cr.aliyuncs.com/nap_hub/fastqc:0.11.8",

@@ -1,4 +1,4 @@
-# Release allowlist: workflow, Choppy configuration, deployable docs, and helpers.
+# Release allowlist: workflow, Choppy configuration, imported tasks, Python sources, and README.
 # Local research, tests, data, reports, and run artifacts stay private.
 # New files remain ignored until they are explicitly added here.
 /*
@@ -14,6 +14,7 @@
 !/tasks/
 /tasks/*
 !/tasks/align_reads.wdl
+!/tasks/embed_helpers.wdl
 !/tasks/apply_recalibration.wdl
 !/tasks/base_recalibrate.wdl
 !/tasks/fastqc.wdl

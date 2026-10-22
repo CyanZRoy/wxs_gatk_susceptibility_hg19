@@ -1,0 +1,481 @@
+version 1.0
+
+task EmbedHelpers {
+  input {
+    String docker_image
+    String cluster_config
+  }
+  command <<<
+    set -euo pipefail
+    call_dir="$PWD"
+    copy_task_logs() {
+      for log in script stdout stderr; do
+        if [ -f "$call_dir/$log" ]; then
+          cp -f "$call_dir/$log" "$call_dir/$log.txt" || true
+        fi
+      done
+    }
+    trap copy_task_logs EXIT
+    local_work=$(mktemp -d /tmp/wxs-task-XXXXXX)
+    cd "$local_work"
+    cat > intervals.py <<'PY_INTERVALS_SOURCE'
+    #!/usr/bin/env python3
+    """Validate hg19 BED inputs and prepare explicit WXS calling/target intervals."""
+
+    import argparse
+    import csv
+    import json
+    from pathlib import Path
+
+
+    # GRC GRCh37 coordinates are 1-based inclusive; these are BED half-open.
+    PAR = {"chrX": [(60000, 2699520), (154931043, 155260560)],
+           "chrY": [(10000, 2649520), (59034049, 59363566)]}
+    SEX_PARTITIONS = ("x_diploid", "x_haploid", "y_haploid")
+    PARTITIONS = SEX_PARTITIONS + ("mt",)
+    HG19_CHRM_LENGTH = 16571
+    WGS_CONTIGS = tuple(f"chr{i}" for i in range(1, 23)) + ("chrX", "chrY", "chrM")
+
+
+    def contigs(fai):
+        result = {}
+        for line in Path(fai).read_text().splitlines():
+            parts = line.split("\t")
+            if len(parts) < 2 or parts[0] in result:
+                raise ValueError("invalid FASTA index")
+            result[parts[0]] = int(parts[1])
+        if not result:
+            raise ValueError("empty FASTA index")
+        return result
+
+
+    def read_bed(path, lengths):
+        rows = []
+        for number, line in enumerate(Path(path).read_text().splitlines(), 1):
+            if not line.strip() or line.startswith(("#", "track", "browser")):
+                continue
+            parts = line.rstrip("\r").split("\t")
+            if len(parts) < 3:
+                raise ValueError(f"{path}:{number}: BED needs at least 3 tab-separated columns")
+            chrom = parts[0]
+            if chrom not in lengths:
+                raise ValueError(f"{path}:{number}: contig {chrom} is absent from reference")
+            try:
+                start, end = int(parts[1]), int(parts[2])
+            except ValueError as exc:
+                raise ValueError(f"{path}:{number}: non-integer coordinate") from exc
+            if not 0 <= start < end <= lengths[chrom]:
+                raise ValueError(f"{path}:{number}: invalid/out-of-reference interval")
+            name = parts[3] if len(parts) > 3 and parts[3] else f"target_{number}"
+            rows.append((chrom, start, end, name))
+        if not rows:
+            raise ValueError(f"{path}: BED has no intervals")
+        return rows
+
+
+    def merge(rows, lengths):
+        order = {chrom: i for i, chrom in enumerate(lengths)}
+        merged = []
+        for chrom, start, end in sorted(rows, key=lambda x: (order[x[0]], x[1], x[2])):
+            if merged and merged[-1][0] == chrom and start <= merged[-1][2]:
+                merged[-1] = (chrom, merged[-1][1], max(end, merged[-1][2]))
+            else:
+                merged.append((chrom, start, end))
+        return merged
+
+
+    def write_bed(path, rows):
+        with open(path, "w") as handle:
+            for chrom, start, end in rows:
+                handle.write(f"{chrom}\t{start}\t{end}\n")
+
+
+    def autosome(chrom):
+        return chrom.startswith("chr") and chrom[3:].isdigit() and 1 <= int(chrom[3:]) <= 22
+
+
+    def intersect(rows, masks, lengths):
+        return merge([(c, max(s, a), min(e, b)) for c, s, e in rows
+                      for mc, a, b in masks if c == mc and s < b and a < e], lengths)
+
+
+    def subtract(rows, masks, lengths):
+        """Return exact half-open pieces of rows not covered by masks."""
+        remaining = []
+        for chrom, start, end in rows:
+            pieces = [(start, end)]
+            for mask_chrom, mask_start, mask_end in masks:
+                if mask_chrom != chrom:
+                    continue
+                pieces = [(left, right) for a, b in pieces
+                          for left, right in ((a, min(b, mask_start)),
+                                              (max(a, mask_end), b)) if left < right]
+            remaining.extend((chrom, a, b) for a, b in pieces)
+        return merge(remaining, lengths)
+
+
+    def sex_masks(lengths, complement):
+        if complement not in ("UNKNOWN", "XX", "XY"):
+            raise ValueError("sex_chromosome_complement must be UNKNOWN, XX or XY")
+        if complement == "UNKNOWN":
+            return {key: [] for key in SEX_PARTITIONS}
+        if "chrX" not in lengths or lengths["chrX"] != 155270560:
+            raise ValueError("sex calling requires hg19 chrX length 155270560 in FAI")
+        if complement == "XX":
+            return {"x_diploid": [("chrX", 0, lengths["chrX"])],
+                    "x_haploid": [], "y_haploid": []}
+        if "chrY" not in lengths or lengths["chrY"] != 59373566:
+            raise ValueError("XY calling requires hg19 chrY length 59373566 in FAI")
+        x1, x2 = PAR["chrX"]
+        y1, y2 = PAR["chrY"]
+        return {"x_diploid": [("chrX", *x1), ("chrX", *x2)],
+                "x_haploid": [("chrX", 0, x1[0]), ("chrX", x1[1], x2[0]),
+                               ("chrX", x2[1], lengths["chrX"])],
+                "y_haploid": [("chrY", 0, y1[0]), ("chrY", y1[1], y2[0]),
+                               ("chrY", y2[1], lengths["chrY"])]}
+
+
+    def check_mitochondrial_reference(lengths, rows):
+        if any(row[0] == "chrM" for row in rows) and lengths.get("chrM") != HG19_CHRM_LENGTH:
+            raise ValueError("mitochondrial calling requires hg19 chrM length 16571 in FAI")
+
+
+    def whole_genome_rows(lengths):
+        missing = [chrom for chrom in WGS_CONTIGS if lengths.get(chrom, 0) <= 0]
+        if missing:
+            raise ValueError("WGS requires primary hg19 contigs in FAI: " + ", ".join(missing))
+        return [(chrom, 0, lengths[chrom], f"wgs_{chrom}") for chrom in WGS_CONTIGS]
+
+
+    def prepare_capture(args):
+        lengths = contigs(args.fai)
+        if args.padding < 0:
+            raise ValueError("padding cannot be negative")
+        mode = "WXS" if args.capture_bed else "WGS"
+        rows = read_bed(args.capture_bed, lengths) if args.capture_bed else whole_genome_rows(lengths)
+        padding = args.padding if args.capture_bed else 0
+        check_mitochondrial_reference(lengths, rows)
+        masks = sex_masks(lengths, args.sex_chromosome_complement)
+        autosomal = [row for row in rows if autosome(row[0])]
+        x_rows = [row for row in rows if row[0] == "chrX" and
+                  args.sex_chromosome_complement in ("XX", "XY")]
+        y_rows = [row for row in rows if row[0] == "chrY" and
+                  args.sex_chromosome_complement == "XY"]
+        mt_rows = [row for row in rows if row[0] == "chrM"]
+        y_supported = intersect([(c, s, e) for c, s, e, _ in y_rows],
+                                masks["y_haploid"], lengths)
+        raw_supported = [(c, s, e) for c, s, e, _ in autosomal + x_rows + mt_rows] + y_supported
+        padded = [(c, max(0, s - padding), min(lengths[c], e + padding))
+                  for c, s, e in raw_supported]
+        auto_calling = merge([row for row in padded if autosome(row[0])], lengths)
+        if not auto_calling:
+            raise ValueError("analysis scope has no supported autosomal intervals")
+        write_bed(args.calling_bed, auto_calling)
+        partitions = {key: intersect(padded, mask, lengths) for key, mask in masks.items()}
+        partitions["mt"] = merge([row for row in padded if row[0] == "chrM"], lengths)
+        for key in PARTITIONS:
+            write_bed(getattr(args, key + "_bed"), partitions[key])
+            Path(getattr(args, "has_" + key)).write_text(str(bool(partitions[key])).lower() + "\n")
+        write_bed(args.bqsr_bed, merge(auto_calling + [region for key in SEX_PARTITIONS
+                                                      for region in partitions[key]], lengths))
+        included = [row for row in rows if autosome(row[0]) or
+                    row[0] == "chrM" or
+                    (row[0] == "chrX" and args.sex_chromosome_complement in ("XX", "XY")) or
+                    (row[0] == "chrY" and args.sex_chromosome_complement == "XY" and
+                     intersect([(row[0], row[1], row[2])], masks["y_haploid"], lengths))]
+        excluded = []
+        for chrom, start, end, _ in rows:
+            if autosome(chrom) or chrom == "chrM" or (chrom == "chrX" and args.sex_chromosome_complement in ("XX", "XY")):
+                continue
+            if chrom == "chrY" and args.sex_chromosome_complement == "XY":
+                excluded.extend((c, s, e, "ParOnYExcluded") for c, s, e in
+                                subtract([(chrom, start, end)], masks["y_haploid"], lengths))
+            else:
+                reason = ("ComplementUnspecified" if chrom in PAR and args.sex_chromosome_complement == "UNKNOWN"
+                          else "AbsentInXX" if chrom == "chrY" and args.sex_chromosome_complement == "XX"
+                          else "UnsupportedContig")
+                excluded.append((chrom, start, end, reason))
+        analysis = merge(auto_calling + [region for group in partitions.values() for region in group], lengths)
+        write_bed(args.analysis_bed, analysis)
+        with open(args.excluded_tsv, "w", newline="") as handle:
+            writer = csv.writer(handle, delimiter="\t")
+            writer.writerow(["chrom", "start", "end", "reason"])
+            for chrom, start, end, reason in excluded:
+                writer.writerow([chrom, start, end, reason])
+        Path(args.summary_json).write_text(json.dumps({
+            "assembly": "hg19_ucsc", "analysis_mode": mode,
+            "capture_padding_bp": padding if mode == "WXS" else None,
+            "capture_intervals": len(rows) if mode == "WXS" else None,
+            "included_intervals": len(included),
+            "excluded_intervals": len(excluded),
+            "sex_chromosome_complement": args.sex_chromosome_complement,
+            "supported_contigs": "chr1-chr22" + (",chrX" if args.sex_chromosome_complement != "UNKNOWN" else "") +
+                                 (",chrY_nonPAR" if args.sex_chromosome_complement == "XY" else "") +
+                                 (",chrM" if partitions["mt"] else ""),
+            "calling_intervals_by_partition": {"autosomal": len(auto_calling),
+                                               **{key: len(value) for key, value in partitions.items()}},
+            "par_policy": ("XY chrX PAR diploid; chrY PAR excluded as duplicate reference sequence"
+                           if args.sex_chromosome_complement == "XY" else
+                           "XX chrX diploid; chrY excluded" if args.sex_chromosome_complement == "XX" else
+                           "sex chromosomes excluded until complement is specified"),
+            "mitochondrial_policy": "chrM Mutect2 mitochondrial mode intermediate; heteroplasmy and NuMT filtering unvalidated",
+        }, indent=2) + "\n")
+
+
+    def prepare_targets(args):
+        lengths = contigs(args.fai)
+        sex_masks(lengths, args.sex_chromosome_complement)
+        targets = read_bed(args.target_bed, lengths)
+        check_mitochondrial_reference(lengths, targets)
+        names = [row[3] for row in targets]
+        if len(names) != len(set(names)):
+            raise ValueError("target BED has duplicate target IDs")
+        def optional_bed(path):
+            if not Path(path).read_text().strip():
+                return []
+            return merge([(c, s, e) for c, s, e, _ in read_bed(path, lengths)], lengths)
+        calling = {"autosomal": optional_bed(args.calling_bed)}
+        calling.update({key: optional_bed(getattr(args, key + "_bed")) for key in PARTITIONS})
+        capture = (merge([(c, s, e) for c, s, e, _ in read_bed(args.capture_bed, lengths)], lengths)
+                   if args.capture_bed else [])
+        overlaps = {key: [] for key in calling}
+        with open(args.status_tsv, "w", newline="") as handle:
+            writer = csv.writer(handle, delimiter="\t")
+            writer.writerow(["target_id", "chrom", "start", "end", "in_scope_bases",
+                             "outside_capture", "status"])
+            for chrom, start, end, name in targets:
+                target_pieces = []
+                for key, regions in calling.items():
+                    matching = [(chrom, max(start, s), min(end, e))
+                                for c, s, e in regions if c == chrom and s < end and e > start]
+                    overlaps[key].extend(matching)
+                    target_pieces.extend(matching)
+                pieces = merge(target_pieces, lengths)
+                bases = sum(min(end, e) - max(start, s) for _, s, e in pieces)
+                outside_capture = (not any(c == chrom and s <= start and e >= end
+                                           for c, s, e in capture) if args.capture_bed else None)
+                status = ("UnsupportedContig" if not autosome(chrom) and chrom not in PAR and chrom != "chrM" else
+                          "ComplementUnspecified" if chrom in PAR and args.sex_chromosome_complement == "UNKNOWN" else
+                          "AbsentInXX" if chrom == "chrY" and args.sex_chromosome_complement == "XX" else
+                          "ParOnYExcluded" if chrom == "chrY" and bases == 0 and
+                          args.sex_chromosome_complement == "XY" and
+                          any(s <= start and end <= e for s, e in PAR["chrY"]) else
+                          "OutOfAnalysisScope" if bases == 0 else
+                          "PartiallyInScope" if bases < end - start else "InScope")
+                writer.writerow([name, chrom, start, end, bases,
+                                 str(outside_capture).lower() if outside_capture is not None else "not_applicable", status])
+        for key, pieces in overlaps.items():
+            clean = merge([p for p in pieces if p[1] < p[2]], lengths)
+            if key != "autosomal":
+                write_bed(getattr(args, key + "_in_scope_bed"), clean)
+                Path(getattr(args, "has_" + key)).write_text(str(bool(clean)).lower() + "\n")
+        write_bed(args.in_scope_bed, merge(overlaps["autosomal"], lengths))
+        Path(args.has_in_scope).write_text(str(bool(overlaps["autosomal"])).lower() + "\n")
+
+
+    def main():
+        parser = argparse.ArgumentParser()
+        sub = parser.add_subparsers(dest="command", required=True)
+        capture = sub.add_parser("capture")
+        capture.add_argument("--fai", required=True)
+        capture.add_argument("--capture-bed", default="")
+        capture.add_argument("--padding", type=int, required=True)
+        capture.add_argument("--calling-bed", required=True)
+        capture.add_argument("--excluded-tsv", required=True)
+        capture.add_argument("--summary-json", required=True)
+        capture.add_argument("--analysis-bed", required=True)
+        capture.add_argument("--bqsr-bed", required=True)
+        capture.add_argument("--sex-chromosome-complement", default="UNKNOWN")
+        for key in PARTITIONS:
+            capture.add_argument("--" + key.replace("_", "-") + "-bed", required=True)
+            capture.add_argument("--has-" + key.replace("_", "-"), required=True)
+        targets = sub.add_parser("targets")
+        targets.add_argument("--fai", required=True)
+        targets.add_argument("--capture-bed", default="")
+        targets.add_argument("--calling-bed", required=True)
+        targets.add_argument("--target-bed", required=True)
+        targets.add_argument("--in-scope-bed", required=True)
+        targets.add_argument("--status-tsv", required=True)
+        targets.add_argument("--has-in-scope", required=True)
+        targets.add_argument("--sex-chromosome-complement", default="UNKNOWN")
+        for key in PARTITIONS:
+            targets.add_argument("--" + key.replace("_", "-") + "-bed", required=True)
+            targets.add_argument("--" + key.replace("_", "-") + "-in-scope-bed", required=True)
+            targets.add_argument("--has-" + key.replace("_", "-"), required=True)
+        args = parser.parse_args()
+        (prepare_capture if args.command == "capture" else prepare_targets)(args)
+
+
+    if __name__ == "__main__":
+        main()
+    PY_INTERVALS_SOURCE
+    cat > delivery.py <<'PY_DELIVERY_SOURCE'
+    #!/usr/bin/env python3
+    """Check a GATK gVCF test package and record conservative release metadata."""
+
+    import argparse
+    import gzip
+    import hashlib
+    import json
+    from pathlib import Path
+
+
+    def digest(path):
+        hasher = hashlib.sha256()
+        with open(path, "rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                hasher.update(chunk)
+        return hasher.hexdigest()
+
+
+    def check_gvcf(path, sample_id):
+        with gzip.open(path, "rt") as handle:
+            first = handle.readline()
+            if not first.startswith("##fileformat=VCF"):
+                raise ValueError(f"gVCF has no VCF fileformat header: {path}")
+            sample_header = None
+            records = 0
+            symbolic_allele = False
+            for line in handle:
+                if line.startswith("#CHROM"):
+                    sample_header = line.rstrip("\n").split("\t")
+                elif not line.startswith("#"):
+                    records += 1
+                    fields = line.split("\t", 5)
+                    symbolic_allele |= len(fields) > 4 and "<NON_REF>" in fields[4]
+            if sample_header is None or len(sample_header) != 10 or sample_header[-1] != sample_id:
+                raise ValueError(f"gVCF must have exactly the requested sample: {path}")
+            if not records or not symbolic_allele:
+                raise ValueError(f"gVCF has no reference-confidence records: {path}")
+
+
+    def check_mitochondrial_vcf(path, sample_id):
+        with gzip.open(path, "rt") as handle:
+            if not handle.readline().startswith("##fileformat=VCF"):
+                raise ValueError(f"mitochondrial VCF has no VCF fileformat header: {path}")
+            samples = None
+            for line in handle:
+                if line.startswith("#CHROM"):
+                    samples = line.rstrip("\n").split("\t")
+                    break
+            if samples is None or len(samples) != 10 or samples[-1] != sample_id:
+                raise ValueError(f"mitochondrial VCF must have exactly the requested sample: {path}")
+            for line in handle:
+                fields = line.rstrip("\n").split("\t")
+                if len(fields) != 10 or fields[0] != "chrM":
+                    raise ValueError(f"mitochondrial VCF has a non-chrM or malformed record: {path}")
+                try:
+                    position = int(fields[1])
+                except ValueError as exc:
+                    raise ValueError(f"mitochondrial VCF has a non-integer position: {path}") from exc
+                if not 1 <= position <= 16571:
+                    raise ValueError(f"mitochondrial VCF has an out-of-reference position: {path}")
+
+
+    def main():
+        parser = argparse.ArgumentParser()
+        for key in ("sample-id", "gvcf", "index", "calling-bed", "analysis-bed",
+                    "capture-summary", "fastp-json", "duplicate-metrics", "qc-json", "manifest-json"):
+            parser.add_argument("--" + key, required=True)
+        parser.add_argument("--capture-bed", default="")
+        parser.add_argument("--target-bed", default="")
+        parser.add_argument("--sex-chromosome-complement", default="UNKNOWN")
+        for partition in ("x-diploid", "x-haploid", "y-haploid"):
+            parser.add_argument("--" + partition + "-gvcf", default="")
+            parser.add_argument("--" + partition + "-index", default="")
+        parser.add_argument("--mt-vcf", default="")
+        parser.add_argument("--mt-index", default="")
+        args = parser.parse_args()
+        files = {key: Path(getattr(args, key.replace("-", "_"))) for key in
+                 ("gvcf", "index", "calling-bed", "analysis-bed", "capture-summary",
+                  "fastp-json", "duplicate-metrics")}
+        if args.capture_bed:
+            files["capture_bed"] = Path(args.capture_bed)
+        if args.target_bed:
+            files["target_bed"] = Path(args.target_bed)
+        partitions = {}
+        for partition in ("x_diploid", "x_haploid", "y_haploid"):
+            gvcf = getattr(args, partition + "_gvcf")
+            index = getattr(args, partition + "_index")
+            if bool(gvcf) != bool(index):
+                raise ValueError(f"{partition} gVCF/index must be supplied together")
+            if gvcf:
+                files[partition + "_gvcf"] = Path(gvcf)
+                files[partition + "_index"] = Path(index)
+                partitions[partition] = str(gvcf)
+        if bool(args.mt_vcf) != bool(args.mt_index):
+            raise ValueError("mitochondrial VCF/index must be supplied together")
+        if args.mt_vcf:
+            files["mt_vcf"] = Path(args.mt_vcf)
+            files["mt_index"] = Path(args.mt_index)
+        for key, path in files.items():
+            if not path.is_file() or path.stat().st_size == 0:
+                raise ValueError(f"{key} is missing or empty: {path}")
+        check_gvcf(files["gvcf"], args.sample_id)
+        for partition in partitions:
+            check_gvcf(files[partition + "_gvcf"], args.sample_id)
+        if args.mt_vcf:
+            check_mitochondrial_vcf(files["mt_vcf"], args.sample_id)
+        with open(files["fastp-json"]) as handle:
+            fastp = json.load(handle)
+        with open(files["capture-summary"]) as handle:
+            capture = json.load(handle)
+        analysis_mode = "WXS" if args.capture_bed else "WGS"
+        if capture.get("analysis_mode") != analysis_mode:
+            raise ValueError("analysis mode disagrees with capture summary")
+        if capture.get("sex_chromosome_complement") != args.sex_chromosome_complement:
+            raise ValueError("sex chromosome complement disagrees with capture summary")
+        expected = capture.get("calling_intervals_by_partition", {})
+        for partition in ("x_diploid", "x_haploid", "y_haploid"):
+            if bool(expected.get(partition, 0)) != (partition in partitions):
+                raise ValueError(f"{partition} gVCF does not match calling intervals")
+        if bool(expected.get("mt", 0)) != bool(args.mt_vcf):
+            raise ValueError("mitochondrial VCF does not match calling intervals")
+        output_mode = ("gvcf_with_target_region_intermediate" if args.target_bed
+                       else "gvcf_test_package")
+        qc = {
+            "schema_version": "0.1.0", "sample_id": args.sample_id,
+            "analysis_mode": analysis_mode,
+            "output_mode": output_mode, "format_precheck_passed": True,
+            "ready_for_import_test": False,
+            "ready_for_report": False,
+            "import_blockers": ["Index query and full sample QC have not been validated"],
+            "report_blockers": ["Clinical target list and assay-specific QC are not validated"],
+            "total_targets": None, "called_targets": None,
+            "fastp_after_filtering": fastp.get("summary", {}).get("after_filtering"),
+            "capture": capture,
+            "sex_chromosome_complement": args.sex_chromosome_complement,
+            "sex_gvcf_partitions": sorted(partitions),
+            "mitochondrial_vcf": str(files["mt_vcf"]) if args.mt_vcf else None,
+        }
+        manifest = {
+            "schema_version": "0.1.0", "workflow": "WxsGermlineHg19",
+            "sample_id": args.sample_id, "assembly": "hg19_ucsc",
+            "output_mode": output_mode, "analysis_mode": analysis_mode,
+            "capture_bed_role": "capture_assay_regions" if args.capture_bed else None,
+            "target_bed": str(files["target_bed"]) if args.target_bed else None,
+            "supported_contigs": capture["supported_contigs"],
+            "sex_chromosome_complement": args.sex_chromosome_complement,
+            "sex_gvcf_partitions": partitions,
+            "mitochondrial_vcf": str(files["mt_vcf"]) if args.mt_vcf else None,
+            "files_sha256": {key: digest(path) for key, path in files.items()},
+            "capture": capture,
+        }
+        Path(args.qc_json).write_text(json.dumps(qc, ensure_ascii=False, indent=2) + "\n")
+        Path(args.manifest_json).write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")
+
+
+    if __name__ == "__main__":
+        main()
+    PY_DELIVERY_SOURCE
+    cp -f intervals.py delivery.py "$call_dir"/
+  >>>
+  output {
+    File intervals_script = "intervals.py"
+    File delivery_script = "delivery.py"
+  }
+  runtime {
+    docker: docker_image
+    instanceTypes: [cluster_config]
+  }
+}

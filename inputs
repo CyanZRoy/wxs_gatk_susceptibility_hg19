@@ -16,8 +16,6 @@
   "WxsGermlineHg19.dbsnp_index": "{{ dbsnp_index }}",
   "WxsGermlineHg19.mills_vcf": "{{ mills_vcf }}",
   "WxsGermlineHg19.mills_index": "{{ mills_index }}",
-  "WxsGermlineHg19.intervals_script": "{{ intervals_script }}",
-  "WxsGermlineHg19.delivery_script": "{{ delivery_script }}",
   "WxsGermlineHg19.fastp_image": "{{ fastp_image }}",
   "WxsGermlineHg19.fastqc_image": "{{ fastqc_image }}",
   "WxsGermlineHg19.analysis_image": "{{ analysis_image }}",
