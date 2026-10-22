@@ -12,10 +12,36 @@ task TrimReads {
   }
   command <<<
     set -euo pipefail
-    test -s ~{validated}
-    fastp --thread ~{threads} -i ~{r1} -I ~{r2} \
+    call_dir="$PWD"
+    input_path() {
+      case "$1" in
+        /*) printf '%s\n' "$1" ;;
+        *) printf '%s/%s\n' "$call_dir" "$1" ;;
+      esac
+    }
+    stage_file() {
+      cp -f "$(input_path "$1")" "$2"
+    }
+    copy_task_logs() {
+      for log in script stdout stderr; do
+        if [ -f "$call_dir/$log" ]; then
+          cp -f "$call_dir/$log" "$call_dir/$log.txt" || true
+        fi
+      done
+    }
+    trap copy_task_logs EXIT
+    local_work=$(mktemp -d /tmp/wxs-task-XXXXXX)
+    mkdir -p "$local_work/tmp"
+    export TMPDIR="$local_work/tmp" TMP="$local_work/tmp" TEMP="$local_work/tmp"
+    export _JAVA_OPTIONS="-Djava.io.tmpdir=$TMPDIR"
+    cd "$local_work"
+    stage_file "~{r1}" R1.fq.gz
+    stage_file "~{r2}" R2.fq.gz
+    test -s "$(input_path "~{validated}")"
+    fastp --thread ~{threads} -i R1.fq.gz -I R2.fq.gz \
       -o ~{sample_id}.R1.trimmed.fq.gz -O ~{sample_id}.R2.trimmed.fq.gz \
       -j ~{sample_id}.fastp.json -h ~{sample_id}.fastp.html
+    cp -f ~{sample_id}.R1.trimmed.fq.gz ~{sample_id}.R2.trimmed.fq.gz ~{sample_id}.fastp.json ~{sample_id}.fastp.html "$call_dir"/
   >>>
   output {
     File trimmed_r1 = "${sample_id}.R1.trimmed.fq.gz"

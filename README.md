@@ -1,4 +1,4 @@
-# hg19 WXS/WGS 胚系易感位点分型流程（初版）
+# hg19 WXS/WGS 胚系易感位点分型流程
 
 主入口是 WDL 1.0 `workflow.wdl`，公共 workflow 名保持 `WxsGermlineHg19`。这是单受检者、双端 FASTQ 的流程：提供 `capture_bed` 时按 WXS 捕获范围运行，省略时按 WGS 主染色体全长范围运行；`target_bed` 不决定模式。各 task 独立放在 `tasks/*.wdl`，辅助程序放在 `scripts/`。
 
@@ -36,7 +36,7 @@ WXS 的 `capture_bed` 含 `chrM` 或进入 WGS 模式时启用独立线粒体分
 
 需要 Cromwell 支持 WDL 1.0，并由运行后端本地化 `File` 输入、`tasks/` 下的 WDL imports 及 Docker 镜像。六张镜像的默认标签均指向 `crpi-xvcezojsbq275htp.cn-shanghai.personal.cr.aliyuncs.com/nap_hub/`，WDL 和 Choppy `defaults`/`inputs` 使用相同值；六档 `cpu*mem*_cluster_config` 名称及 ECS 默认值参考 [hg38 instant defaults](https://github.com/CyanZRoy/wxs_somatic_gatk_hg38_instant/blob/main/defaults)，任务分配见 [运行依赖说明](docs/流程与运行依赖.md)。部署前须逐个拉取并在容器内检查软件、版本和路径：`fastp_image` 需 `fastp`，`fastqc_image` 需 `fastqc`，`analysis_image` 需 `bwa`、`samtools`、`gatk`，`gatk_image` 需 `gatk` 与 `samtools`，`qualimap_image` 需 `qualimap`、`awk`、`tar`、Java，`python_image` 需 Python 3 标准库。所有容器还需满足任务 Shell 命令。镜像标签和资源 URI 不代表已经通过拉取或运行验证；部署时应记录镜像 digest、工具版本和真实路径。
 
-当前重任务的 `systemDisk` 使用 150–500 GB 静态初值，需按实际 FASTQ/BAM 大小和后端磁盘模型调整；它不是通用容量保证。
+各 task 先将计算所需输入及索引从挂载目录复制到独立的 `/tmp` 目录，在本地运行并把 WDL 输出复制回调用目录；`ValidateInputs` 只对大型 FASTQ 做非空预检。任务退出时另存 `script.txt`、`stdout.txt`、`stderr.txt`，便于在 Choppy 直接打开。当前重任务的 `systemDisk` 使用 150–500 GB 静态初值，需按实际 FASTQ/BAM 大小、本地副本和后端磁盘模型调整；它不是通用容量保证。
 
 主要输入：
 
@@ -91,8 +91,8 @@ java -jar cromwell.jar run workflow.wdl --inputs inputs.json --imports imports.z
 ## 开发验收状态
 
 - 已完成：WDL 任务连接、按可选捕获 BED 选择 WXS/WGS 范围、常染色体与 XX/XY 性染色体分区、范围内 chrM 候选变异分支、检测 BED 参数隔离、单对 FASTQ 输入、保守交付元数据、小型辅助脚本测试。
-- 未完成：Cromwell/womtool 语法校验、Choppy 渲染与后端资源配置、容器集成、真实 FASTQ 冒烟、PAR 边界和 X/Y 同源区域的真实样本 QC、线粒体断点/NuMT/异质性验证、目标事件级完整性与临床放行验证。
+- 已在本机 Ubuntu-24.04 WSL 用 WOMtool 81 校验主 WDL 和全部 imports；未完成 Choppy 渲染与后端资源配置、容器集成、真实 FASTQ 冒烟、PAR 边界和 X/Y 同源区域的真实样本 QC、线粒体断点/NuMT/异质性验证、目标事件级完整性与临床放行验证。
 
 ## 参考实现
 
-预处理任务结构参考 [上游 hg19 WXS 流程固定提交](https://github.com/CyanZRoy/wxs_somatic_gatk_ref/tree/8894a1f9fafaf6f43c00fe91e0089fc6abd21e41)。本流程独立实现单样本胚系核基因组分支；线粒体候选变异分支使用 [GATK Mutect2 mitochondrial mode](https://gatk.broadinstitute.org/hc/en-us/articles/9570422171291-Mutect2)。GATK 的单样本 GenotypeGVCFs 输入和 `--include-non-variant-sites` 用法见 [官方文档](https://gatk.broadinstitute.org/hc/en-us/articles/360056970432-GenotypeGVCFs)。
+本流程独立实现单样本胚系核基因组分支；线粒体候选变异分支使用 [GATK Mutect2 mitochondrial mode](https://gatk.broadinstitute.org/hc/en-us/articles/9570422171291-Mutect2)。GATK 的单样本 GenotypeGVCFs 输入和 `--include-non-variant-sites` 用法见 [官方文档](https://gatk.broadinstitute.org/hc/en-us/articles/360056970432-GenotypeGVCFs)。
