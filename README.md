@@ -34,7 +34,7 @@ WXS 的 `capture_bed` 含 `chrM` 或进入 WGS 模式时启用独立线粒体分
 
 ## 输入与运行
 
-需要 Cromwell 支持 WDL 1.0，并由运行后端本地化 `File` 输入、`tasks/` 下的 WDL imports 及 Docker 镜像。六张镜像的默认标签均指向 `crpi-xvcezojsbq275htp.cn-shanghai.personal.cr.aliyuncs.com/nap_hub/`，WDL 和 Choppy `defaults`/`inputs` 使用相同值；六档 `cpu*mem*_cluster_config` 名称及 ECS 默认值参考 [hg38 instant defaults](https://github.com/CyanZRoy/wxs_somatic_gatk_hg38_instant/blob/main/defaults)，任务分配见 [运行依赖说明](docs/流程与运行依赖.md)。部署前须逐个拉取并在容器内检查软件、版本和路径：`fastp_image` 需 `fastp`，`fastqc_image` 需 `fastqc`，`analysis_image` 需 `bwa`、`samtools`、`gatk`，`gatk_image` 需 `gatk` 与 `samtools`，`qualimap_image` 需 `qualimap`、`awk`、`tar`、Java，`python_image` 需 Python 3 标准库。所有容器还需满足任务 Shell 命令。镜像标签和资源 URI 不代表已经通过拉取或运行验证；部署时应记录镜像 digest、工具版本和真实路径。
+需要 Cromwell 支持 WDL 1.0，并由运行后端本地化 `File` 输入、`tasks/` 下的 WDL imports 及 Docker 镜像。六张镜像的默认标签均指向 `crpi-xvcezojsbq275htp.cn-shanghai.personal.cr.aliyuncs.com/nap_hub/`，WDL 和 Choppy `defaults`/`inputs` 使用相同值；六档 `cpu*mem*_cluster_config` 名称及 ECS 默认值参考 [hg38 instant defaults](https://github.com/CyanZRoy/wxs_somatic_gatk_hg38_instant/blob/main/defaults)，各 task 使用的实例配置见其 `runtime.instanceTypes`。部署前须逐个拉取并在容器内检查软件、版本和路径：`fastp_image` 需 `fastp`，`fastqc_image` 需 `fastqc`，`analysis_image` 需 `bwa`、`samtools`、`gatk`，`gatk_image` 需 `gatk` 与 `samtools`，`qualimap_image` 需 `qualimap`、`awk`、`tar`、Java，`python_image` 需 Python 3 标准库。所有容器还需满足任务 Shell 命令。镜像标签和资源 URI 不代表已经通过拉取或运行验证；部署时应记录镜像 digest、工具版本和真实路径。
 
 各 task 先将计算所需输入及索引从挂载目录复制到独立的 `/tmp` 目录，在本地运行并把 WDL 输出复制回调用目录；`ValidateInputs` 只对大型 FASTQ 做非空预检。任务退出时另存 `script.txt`、`stdout.txt`、`stderr.txt`，便于在 Choppy 直接打开。当前重任务的 `systemDisk` 使用 150–500 GB 静态初值，需按实际 FASTQ/BAM 大小、本地副本和后端磁盘模型调整；它不是通用容量保证。
 

@@ -1,8 +1,0 @@
-{
-  "name": "hg19 WXS/WGS 单样本胚系 gVCF 测试流程",
-  "short_name": "wxs_germline_hg19",
-  "description": "单受检者双端 WXS/WGS FASTQ 到 hg19 胚系 gVCF；提供捕获 BED 时为 WXS，省略时为 WGS。可选目标 BED 仅派生区域结果。当前为接入测试版本，不用于临床报告放行。",
-  "hidden": false,
-  "category": "Pipeline",
-  "source": "WXS"
-}
