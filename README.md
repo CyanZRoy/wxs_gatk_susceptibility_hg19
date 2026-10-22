@@ -72,16 +72,13 @@ WXS 的 `capture_bed` 含 `chrM` 或进入 WGS 模式时启用独立线粒体分
 }
 ```
 
-本机 Ubuntu-24.04 WSL 已将 Cromwell 81 与 WOMtool 81 安装在 `/opt/cromwell/81/`。Windows Codex 在每次编辑 WDL 后运行 `& .\scripts\validate_wdl_wsl.ps1`；脚本会校验主 WDL 及其 imports。WSL 中的等价命令及后续提交步骤：
+先用 WOMtool 校验 WDL；将 `tasks/` 打包为 imports ZIP 后提交给 Cromwell：
 
 ```bash
-python3 -m unittest discover -s tests
-java -jar /opt/cromwell/81/womtool-81.jar validate workflow.wdl
+java -jar womtool.jar validate workflow.wdl
 python3 -m zipfile -c imports.zip tasks
-java -jar /opt/cromwell/81/cromwell-81.jar run workflow.wdl --inputs inputs.json --imports imports.zip
+java -jar cromwell.jar run workflow.wdl --inputs inputs.json --imports imports.zip
 ```
-
-本地 WOMtool 检查仅覆盖 WDL 语法与导入/类型语义，不运行任务，也不替代 Choppy 后端、镜像及真实输入验证。
 
 ## 输出及语义
 
@@ -93,8 +90,8 @@ java -jar /opt/cromwell/81/cromwell-81.jar run workflow.wdl --inputs inputs.json
 
 ## 开发验收状态
 
-- 已完成：WDL 任务连接、按可选捕获 BED 选择 WXS/WGS 范围、常染色体与 XX/XY 性染色体分区、范围内 chrM 候选变异分支、检测 BED 参数隔离、单对 FASTQ 输入、保守交付元数据、小型辅助脚本测试及 WDL task 接口静态检查；WSL WOMtool 81 已成功校验主 WDL 和全部 15 个 imports。
-- 未完成：目标 Choppy/Cromwell 后端渲染与资源配置、容器集成、真实 FASTQ 冒烟、PAR 边界和 X/Y 同源区域的真实样本 QC、线粒体断点/NuMT/异质性验证、目标事件级完整性与临床放行验证。
+- 已完成：WDL 任务连接、按可选捕获 BED 选择 WXS/WGS 范围、常染色体与 XX/XY 性染色体分区、范围内 chrM 候选变异分支、检测 BED 参数隔离、单对 FASTQ 输入、保守交付元数据、小型辅助脚本测试。
+- 未完成：Cromwell/womtool 语法校验、Choppy 渲染与后端资源配置、容器集成、真实 FASTQ 冒烟、PAR 边界和 X/Y 同源区域的真实样本 QC、线粒体断点/NuMT/异质性验证、目标事件级完整性与临床放行验证。
 
 ## 参考实现
 
